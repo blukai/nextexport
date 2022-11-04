@@ -61,11 +61,16 @@ func getPageRoutes(fs embed.FS, rootDir string, dir string) ([]*pageRoute, error
 			continue
 		}
 
-		path := strings.Replace(absolutePath, rootDir, "", 1)
+		path := absolutePath
+		if rootDir != "." {
+			path = strings.Replace(absolutePath, rootDir, "", 1)
+		}
+
 		regexp, err := getPageRouteRegexp(path)
 		if err != nil {
 			return nil, fmt.Errorf("could not get page route regexp: %w", err)
 		}
+
 		paths = append(paths, &pageRoute{
 			path:   path,
 			regexp: regexp,
@@ -97,11 +102,14 @@ func NewHandler(fs embed.FS, rootDir string) (http.Handler, error) {
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, route := range h.pageRoutes {
 		if route.regexp.MatchString(r.URL.Path) {
-			r.URL.Path = route.path
+			r.URL.Path = "/" + route.path
 			break
 		}
 	}
-	r.URL.Path = "/" + h.rootDir + r.URL.Path
+
+	if h.rootDir != "." {
+		r.URL.Path = "/" + h.rootDir + r.URL.Path
+	}
 
 	fs := http.FileServer(http.FS(h.fs))
 	fs.ServeHTTP(w, r)
