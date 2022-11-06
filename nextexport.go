@@ -1,13 +1,19 @@
 package nextexport
 
 import (
-	"embed"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"path"
 	"regexp"
 	"strings"
 )
+
+// can be minfs or embed.FS
+type FS interface {
+	Open(name string) (fs.File, error)
+	ReadDir(name string) ([]fs.DirEntry, error)
+}
 
 // NOTE: pageRoute is a partial representation of static/dymamic route from
 // next's route-manifest.json file.
@@ -37,7 +43,7 @@ func getPageRouteRegexp(path string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
-func getPageRoutes(fs embed.FS, rootDir string, dir string) ([]*pageRoute, error) {
+func getPageRoutes(fs FS, rootDir string, dir string) ([]*pageRoute, error) {
 	dirEntries, err := fs.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -82,11 +88,11 @@ func getPageRoutes(fs embed.FS, rootDir string, dir string) ([]*pageRoute, error
 
 type handler struct {
 	pageRoutes []*pageRoute
-	fs         embed.FS
+	fs         FS
 	rootDir    string
 }
 
-func NewHandler(fs embed.FS, rootDir string) (http.Handler, error) {
+func NewHandler(fs FS, rootDir string) (http.Handler, error) {
 	pageRoutes, err := getPageRoutes(fs, rootDir, rootDir)
 	if err != nil {
 		return nil, fmt.Errorf("could not get page routes: %w", err)
