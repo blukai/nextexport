@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -18,11 +19,14 @@ type FS interface {
 // NOTE: pageRoute is a partial representation of static/dymamic route from
 // next's route-manifest.json file.
 type pageRoute struct {
-	path   string
-	regexp *regexp.Regexp
+	path    string
+	regexp  *regexp.Regexp
+	dynamic uint8
 }
 
-func getPageRouteRegexp(path string) (*regexp.Regexp, error) {
+func getPageRoute(path string) (*pageRoute, error) {
+	result := pageRoute{path: path}
+
 	b := strings.Builder{}
 	b.WriteString("^")
 
@@ -32,6 +36,7 @@ func getPageRouteRegexp(path string) (*regexp.Regexp, error) {
 
 		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
 			b.WriteString("/([^/]+?)")
+			result.dynamic = 1
 			continue
 		}
 
@@ -40,7 +45,13 @@ func getPageRouteRegexp(path string) (*regexp.Regexp, error) {
 
 	b.WriteString("(?:/)?$")
 
-	return regexp.Compile(b.String())
+	var err error
+	result.regexp, err = regexp.Compile(b.String())
+	if err != nil {
+		return nil, fmt.Errorf("could not compile regexp: %w", err)
+	}
+
+	return &result, nil
 }
 
 func getPageRoutes(fs FS, rootDir string, dir string) ([]*pageRoute, error) {
@@ -49,7 +60,7 @@ func getPageRoutes(fs FS, rootDir string, dir string) ([]*pageRoute, error) {
 		return nil, err
 	}
 
-	paths := make([]*pageRoute, 0)
+	pageRoutes := make([]*pageRoute, 0)
 
 	for _, dirEntry := range dirEntries {
 		absolutePath := path.Join(dir, dirEntry.Name())
@@ -59,7 +70,7 @@ func getPageRoutes(fs FS, rootDir string, dir string) ([]*pageRoute, error) {
 			if err != nil {
 				return nil, err
 			}
-			paths = append(paths, dirPaths...)
+			pageRoutes = append(pageRoutes, dirPaths...)
 			continue
 		}
 
@@ -72,18 +83,20 @@ func getPageRoutes(fs FS, rootDir string, dir string) ([]*pageRoute, error) {
 			path = strings.Replace(absolutePath, rootDir, "", 1)
 		}
 
-		regexp, err := getPageRouteRegexp(path)
+		pr, err := getPageRoute(path)
 		if err != nil {
-			return nil, fmt.Errorf("could not get page route regexp: %w", err)
+			return nil, fmt.Errorf("could not get page route: %w", err)
 		}
 
-		paths = append(paths, &pageRoute{
-			path:   path,
-			regexp: regexp,
-		})
+		pageRoutes = append(pageRoutes, pr)
 	}
 
-	return paths, nil
+	// static should get a priority over dynamic
+	sort.Slice(pageRoutes, func(i, j int) bool {
+		return pageRoutes[i].dynamic < pageRoutes[j].dynamic
+	})
+
+	return pageRoutes, nil
 }
 
 type handler struct {
